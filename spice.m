@@ -498,7 +498,7 @@ function starterfunc(src, panel, f)
        endif
        k += 1;
        I = [I; 0] % adds a zero for the dummy
-       batterykeys(end+1) = cccs_i;
+       batterykeys(end+1) = cccsid(cccs_i);
      endif
 
        if endp == 0
@@ -547,7 +547,7 @@ function starterfunc(src, panel, f)
           A(depstartp, maxnode+kpivot) = -1
           A(maxnode+kpivot, depstartp) = -1
          endif
-         batterykeys(end+1) = ccvs_i;
+         batterykeys(end+1) = ccvsid(ccvs_i);
        endif
          I(kpivot2 + maxnode, 1) = 0        % we want these two to  be done anyway this results, batterykey however, twice if we make a dummy, once if not
          batterykeys(end+1) = ccvs_i;
