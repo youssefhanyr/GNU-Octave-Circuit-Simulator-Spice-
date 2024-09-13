@@ -351,8 +351,7 @@ function starterfunc(src, panel, f)
      continue
    endif
 
-   if strcmp(component_array(i).type, 'capacitor') || ...     % i should have made this into  switch case instead, oh well 09/07/2024
-     strcmp(component_array(i), 'dep vccs')
+   if strcmp(component_array(i).type, 'capacitor')% i should have made this into  switch case instead, oh well 09/07/2024
      addant = component_array(i).value;
    else
      addant = 1/component_array(i).value;
@@ -393,6 +392,9 @@ function starterfunc(src, panel, f)
    elseif endp == 0
      Y(startp, min(pdepstart, pdepend):max(pdepstart, pdepend)) += ...    % same here
                                           component_array(i).mat(1, :)
+   else
+     Y(min(pstart, pend):max(pstart, pend), min(pdepstart, pdepend):max(pdepstart, pdepend)) += ...
+                                          component_array(i).mat
    endif
 
    elseif strcmp(component_array(i).type, 'indp dc cs') % checks for dc indp cs to add
@@ -424,12 +426,13 @@ function starterfunc(src, panel, f)
          A(endp, maxnode+k) = 1
        endif
        if depstartp == 0
-         A(maxnode+k, dependp) = component_array(i).value
+         A(maxnode+k, dependp) = -component_array(i).value
        elseif dependp == 0
-         A(maxnode+k, depstartp) = -component_array(i).value
+         A(maxnode+k, depstartp) = component_array(i).value
        else
-         A(maxnode+k, depstartp) = -component_array(i).value
-         A(maxnode+k, dependp) = component_array(i).value
+         A(maxnode+k, depstartp) = component_array(i).value
+         A(maxnode+k, dependp) = -component_array(i).value
+       k += 1;
        endif
 
     elseif strcmp(component_array(i).type, 'indp dc vs') || ...
@@ -548,11 +551,11 @@ function starterfunc(src, panel, f)
          batterykeys(end+1) = ccvs_i;
          A(maxnode+kpivot2, maxnode+kpivot) = -component_array(ccvsid(ccvs_i)).value
          if endp == 0
-           A(startp, maxnode+kpivot2) += -1
-           A(maxnode+kpivot2, startp) += -1
+           A(startp, maxnode+kpivot2) = -1
+           A(maxnode+kpivot2, startp) = -1
          elseif startp == 0
-           A(endp, maxnode+kpivot2) += 1
-           A(maxnode+kpivot2, endp) += 1
+           A(endp, maxnode+kpivot2) = 1
+           A(maxnode+kpivot2, endp) = 1
          else
            A(maxnode+kpivot2, endp) = 1
            A(endp, maxnode+kpivot2) = 1
@@ -611,7 +614,7 @@ function showanswers(answers, currentanswers, panel, k, f)
      else
        msg = sprintf('V%d0 %.5f', i, answers(i, 1));
      endif
-     uicontrol(panel, 'Style', 'text', 'String', msg, 'Position', [4, 160 - 15*(i - 1), 230, 20])
+     uicontrol(panel, 'Style', 'text', 'String', msg, 'Position', [4, 250 - 15*(i - 1), 230, 20])
 
    else
      if i - maxnode > length(currentanswers)
@@ -633,7 +636,7 @@ function showanswers(answers, currentanswers, panel, k, f)
                    startp, answers(i, 1));
      endif
 
-     uicontrol(panel, 'Style', 'text', 'String', msg, 'Position', [4, 160 - 15*(i - 1), 230, 20]);
+     uicontrol(panel, 'Style', 'text', 'String', msg, 'Position', [4, 250 - 15*(i - 1), 230, 20]);
 
    endif
  endfor
@@ -744,9 +747,38 @@ function add_component(h1, h2, h3, h4, h5, h6, h7, h8, h9)
     if (component_name == 'R' || strcmp(component_name, 'inductor'))...
       &&  startp != 0 && endp != 0 % creates the stamps
                                                       % for R's and L's and C's
-      mater = [1/value, -1/value ; -1/value, 1/value];
+      if (strcmp(component_name, 'inductor') && freq == 0)                % if no frequency treat the inductor as a dummy voltage
+        component = struct('type', 'indp dc vs', 'unit', unit, 'value', 0 ...
+         , 'startpoint', startp, 'endpoint', endp, 'mat', NaN,...
+         'dep_startp', depstartp, 'dep_endp', dependp, 'oldvalue', oldvalue);
+
+      elseif abs(startp - endp) == 1                                          % 2x2 mat if two consective nodes
+        mater = [1/value, -1/value ; -1/value, 1/value];
+      else
+
+        mater = zeros(abs(startp - endp) + 1, abs(startp - endp) + 1);        % makes a large if two nodes are not consective
+        mater(1, 1) = 1/value;
+        mater (1, end) = -1/value;
+        mater (end, 1) = -1/value;
+        mater(end, end) = 1/value;
+      endif
+
     elseif strcmp(component_name, 'capacitor')
-      mater = [value, -value; -value, value];
+      if freq == 0
+        component = struct('type', 'indp dc cs', 'unit', unit, 'value', 0 ...             % treat the capacitor as zero current source
+         , 'startpoint', startp, 'endpoint', endp, 'mat', NaN,...
+         'dep_startp', depstartp, 'dep_endp', dependp, 'oldvalue', oldvalue);
+
+      elseif abs(startp - endp) == 1
+        mater = [value, -value; -value, value];
+
+      else
+        mater = zeros(abs(startp - endp) + 1, abs(startp - endp) + 1);
+        mater(1, 1) = value;
+        mater (1, end) = value;
+        mater (end, 1) = -value;
+        mater(end, end) = value;
+      endif
 
     elseif strcmp(component_name, 'dep vccs')
       oingo = 0;        % they are to subsitute the 1 from the gnd nodes, so as to not compromise the size
@@ -778,15 +810,18 @@ function add_component(h1, h2, h3, h4, h5, h6, h7, h8, h9)
       elseif startp == 0 && size(mater, 1) > 1 % i
         mater(1, :) = 0
       endif
+
     else
    % Will not call this attr if it has a gnd node, will adjust A with value only
       mater = NaN;      % i dont think this line is of any use may delete may not dont care
     endif
 
    % Constructs the struct with all the needed ips for later
-    component = struct('type', component_name, 'unit', unit, 'value', value ...
-     , 'startpoint', startp, 'endpoint', endp, 'mat', mater,...
-     'dep_startp', depstartp, 'dep_endp', dependp, 'oldvalue', oldvalue);
+    if ~((strcmp(component_name, 'inductor') || strcmp(component_name, 'capacitor')) && freq == 0)
+      component = struct('type', component_name, 'unit', unit, 'value', value ...
+       , 'startpoint', startp, 'endpoint', endp, 'mat', mater,...
+       'dep_startp', depstartp, 'dep_endp', dependp, 'oldvalue', oldvalue);
+    endif
 
    % Adds the last added component
     component_array= [component_array, component];
@@ -801,9 +836,11 @@ function add_component(h1, h2, h3, h4, h5, h6, h7, h8, h9)
     endif
 
     if strcmp(component_name, 'testers') || strcmp(component_name, 'dep vccs') ...
-      || strcmp(value, 'dep cccs') || strcmp(value, 'dep vcvs') ...
-      || strcmp(value, 'dep ccvs')
+      || strcmp(component_name, 'dep cccs') || strcmp(component_name, 'dep vcvs') ...
+      || strcmp(component_name, 'dep ccvs')
+
       % message for all dependent components
+
       message = sprintf(...
        '%s%d of value %.2f from %d to %d and depends on source between %d %d',...
        component_name, number_ofcomp, value, startp, endp, depstartp, dependp);
@@ -821,17 +858,20 @@ function add_component(h1, h2, h3, h4, h5, h6, h7, h8, h9)
         message = sprintf('%s%d of value %.2f%s from node %d to node %d',...
                           component_name, number_ofcomp, oldvalue,...
                            unit, startp, endp);
+
       else
         message = sprintf('%s%d of value %.2f + %.2fj from node %d to node %d',...
                           component_name, number_ofcomp, realpart,...
                            cmplxpart, startp, endp);
       endif
+
       id = uicontrol(comp_panel, 'Style', 'text', 'String', message, ...,
       'Position', [30, 260 - 15*(number_ofcomp - 1), 330, 15]);
 
       texthandles = [texthandles, id];
       number_ofcomp += 1;
     else
+
     % Message for all components indp dc
       message = sprintf('%s%d of value %.2f from node %d to node %d',...
                         component_name, number_ofcomp, value, startp, endp);
