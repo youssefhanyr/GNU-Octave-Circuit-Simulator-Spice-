@@ -395,6 +395,7 @@ function starterfunc(src, panel, f)
    else
      Y(min(pstart, pend):max(pstart, pend), min(pdepstart, pdepend):max(pdepstart, pdepend)) += ...
                                           component_array(i).mat
+   batterykeys(end+1) = i;
    endif
 
    elseif strcmp(component_array(i).type, 'indp dc cs') % checks for dc indp cs to add
@@ -433,6 +434,7 @@ function starterfunc(src, panel, f)
          A(maxnode+k, depstartp) = component_array(i).value
          A(maxnode+k, dependp) = -component_array(i).value
        k += 1;
+       batterykeys(end+1) = i;
        endif
 
     elseif strcmp(component_array(i).type, 'indp dc vs') || ...
@@ -614,15 +616,28 @@ function showanswers(answers, currentanswers, panel, k, f)
      else
        msg = sprintf('V%d0 %.5f', i, answers(i, 1));
      endif
-     uicontrol(panel, 'Style', 'text', 'String', msg, 'Position', [4, 250 - 15*(i - 1), 230, 20])
+     uicontrol(panel, 'Style', 'text', 'String', msg, 'Position', [4, 200 - 15*(i - 1), 230, 20])
 
    else
-     if i - maxnode > length(currentanswers)
-        startp = component_array(currentanswers(i - maxnode - 1)).startpoint      % this is supposed to handle situations like with cccs and ccvs,
-        endp = component_array(currentanswers(i - maxnode - 1)).endpoint            % doesnt work as intented, leaves an answer behind (not really imp), and im leaving it
-     elseif strcmp(component_array(currentanswers(i - maxnode)).type, 'dep cccs')
+
+    if strcmp(component_array(currentanswers(i - maxnode)).type, 'dep cccs')
         startp = component_array(currentanswers(i - maxnode)).dep_startp;
         endp = component_array(currentanswers(i - maxnode)).dep_endp;
+
+    elseif strcmp(component_array(currentanswers(i - maxnode)).type, 'dep ccvs')
+        startp = component_array(currentanswers(i - maxnode)).startpoint;
+        endp = component_array(currentanswers(i - maxnode)).endpoint;
+                                                                        % ccvs results still show 10 for some reason idk why
+        if iscomplex(answers(i, 1))
+        msg = sprintf('I%d%d %.5f + %.5fj', component_array(currentanswers(i - maxnode)).dep_endp,...
+                    component_array(currentanswers(i - maxnode)).dep_startp,...
+                    real(answers(i, 1)), imag(answers(i, 1)));
+        else
+          msg = sprintf('I%d%d %.3f', component_array(currentanswers(i - maxnode)).dep_endp,...
+                    component_array(currentanswers(i - maxnode)).dep_startp, answers(i, 1));
+          uicontrol(panel, 'Style', 'text', 'String', msg, 'Position', [4, 200 - 15*(i - 1), 230, 20]);
+          i += 1;
+        endif
      else
         startp = component_array(currentanswers(i - maxnode)).startpoint
         endp = component_array(currentanswers(i - maxnode)).endpoint
@@ -636,7 +651,7 @@ function showanswers(answers, currentanswers, panel, k, f)
                    startp, answers(i, 1));
      endif
 
-     uicontrol(panel, 'Style', 'text', 'String', msg, 'Position', [4, 250 - 15*(i - 1), 230, 20]);
+     uicontrol(panel, 'Style', 'text', 'String', msg, 'Position', [4, 200 - 15*(i - 1), 230, 20]);
 
    endif
  endfor
@@ -810,7 +825,6 @@ function add_component(h1, h2, h3, h4, h5, h6, h7, h8, h9)
       elseif startp == 0 && size(mater, 1) > 1 % i
         mater(1, :) = 0
       endif
-
     else
    % Will not call this attr if it has a gnd node, will adjust A with value only
       mater = NaN;      % i dont think this line is of any use may delete may not dont care
