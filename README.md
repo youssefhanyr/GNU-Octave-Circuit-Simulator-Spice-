@@ -80,3 +80,6 @@ And here's another that has an AC Source.
 ![Screenshot 2024-09-07 135209](https://github.com/user-attachments/assets/fac550ca-efac-4e1f-8ef7-6d0f51bf6e7f)
 
 ![Screenshot 2024-09-07 135155](https://github.com/user-attachments/assets/f4de4ce7-35e6-4baf-9274-97237b4bffde)
+
+
+EDIT: Big Thanks to the author of [this](https://github.com/Tiburonboy/Symbolic-modified-nodal-analysis/blob/master/README.md) repo, I used it for a bit of debugging.
