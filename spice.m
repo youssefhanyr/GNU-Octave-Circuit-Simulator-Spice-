@@ -10,7 +10,7 @@ f = figure('Name', 'Circuit Simulator', 'Position', [200, 100, 1000, 650], 'Colo
               'ForegroundColor', [1, 0, 0], ...
               'HorizontalAlignment', 'center');
 
-global component_array maxnode nodes number_ofcomp texthandles comp_panel batterykeys freq;
+global component_array maxnode nodes number_ofcomp texthandles comp_panel current4sourceslist freq allvoltagesources;
 % each variable is for the following, arr of structs for later processing
 % number of nodes, an arr that contains the node numbers, number of components
 %an array of all handles of texts, the panel of components, arr of indexes for
@@ -21,8 +21,9 @@ nodes = {'0', '1'};
 number_ofcomp = 1;
 texthandles = [];
 comp_panel = 0;
-batterykeys = [];
+current4sourceslist = [];
 freq = 0.0;
+allvoltagesources = [];
 
 % the panel for solution variables, uptop to pass it as a variable
 sol_panel = uipanel('Parent', f, 'Title', 'Circuit Solution', 'Position', [0.04, 0.005, 0.35, 0.4]);
@@ -115,10 +116,11 @@ uicontrol('Style', 'pushbutton', 'Position', [420, 340, 80, 50], 'String', 'Add'
 
 % a button to solve the system with the current info
 uicontrol('Style', 'pushbutton', 'Position', [420, 250, 80, 50], 'String', 'Solve' ...
-          , 'Callback', @(src, event) starterfunc(src, sol_panel, f), 'ForegroundColor', [0, 0, 0]...
+          , 'Callback', @(src, event) starterfunc(src, sol_panel, f),...
+           'ForegroundColor', [0, 0, 0]...
            ,'FontWeight', 'bold', 'FontSize', 12, 'BackgroundColor', [0, 1, 0]);
 
-% a button that currently does nothing
+% a button that generates netlists
 uicontrol('Style', 'pushbutton', 'Position', [580, 330, 160, 30], 'String', 'Generate netlink' ...
           , 'Callback', @(src, event) passer(src), 'ForegroundColor', [0, 0, 0]...
            ,'FontWeight', 'bold', 'FontSize', 10, 'BackgroundColor', [0.3, 0.3, 0.3]);
@@ -151,12 +153,12 @@ function passer(src)
   global component_array number_ofcomp freq
   path = uigetdir();
   if path
-    filename = fullfile(path, 'CircuitSimulatorGNU.sp');
+    filename = fullfile(path, 'CircuitSimulatorGNU.civ');
     filehandler = fopen(filename, 'w')
 
     if filehandler != -1
-
-      fprintf(filehandler, 'This is the circuit you inputted\n')
+      AC = 0;
+      fprintf(filehandler, '***** This is the circuit you inputted ******  \n') % first line is usually ignored
       for i = 1:length(component_array)
         componentname = component_array(i).type;
         unit = component_array(i).unit;
@@ -165,62 +167,68 @@ function passer(src)
         endif
         switch componentname
 
-          case 'R'
-            fprintf(filehandler, 'R%d %d %d %.3f%s\n', i, ...
+          case 'R'                                                      % the space before \n fixed everything
+            fprintf(filehandler, 'R%d %d %d %.3f \n', i, ...
             component_array(i).endpoint, component_array(i).startpoint, ...
-            component_array(i).oldvalue, unit)
+            component_array(i).value)
 
           case 'indp dc vs'
-            fprintf(filehandler, 'V%d %d %d %.3f\n', i, ...
+            fprintf(filehandler, 'V%d %d %d %.3f \n', i, ...
             component_array(i).endpoint, component_array(i).startpoint, ...
-            component_array(i).oldvalue, unit)
+            component_array(i).value)
 
           case 'indp dc cs'
-            fprintf(filehandler, 'I%d %d %d %.3f\n', i, ...
+            fprintf(filehandler, 'I%d %d %d %.3f \n', i, ...
             component_array(i).endpoint, component_array(i).startpoint, ...
-            component_array(i).oldvalue, unit)
+            component_array(i).value)
 
           case 'indp ac vs'
-            fprintf(filehandler, 'V%d %d %d SIN(0 %.3f%s %.3f)\n', i, ...
+            fprintf(filehandler, 'V%d %d %d AC %f SIN(0 %.3f %.3f)\n', i, ...
             component_array(i).endpoint, component_array(i).startpoint, ...
-            component_array(i).oldvalue*sqrt(2), unit, freq)
+            component_array(i).value, component_array(i).value, freq)
+            AC = 1;
 
           case 'inductor'
-            fprintf(filehandler, 'L%d %d %d %.3f%s\n', i, ...
+            fprintf(filehandler, 'L%d %d %d %f\ n', i, ...
             component_array(i).endpoint, component_array(i).startpoint, ...
-            component_array(i).oldvalue, unit)
+            component_array(i).value)
 
           case 'capacitor'
-            fprintf(filehandler, 'C%d %d %d %.3f%s\n', i, ...
+            fprintf(filehandler, 'C%d %d %d %f \n', i, ...
             component_array(i).endpoint, component_array(i).startpoint, ...
-            component_array(i).oldvalue, unit)
+            component_array(i).value)
 
           case 'dep cccs'
-            fprintf(filehandler, 'F%d %d %d %d %d %.3f\n', i, ...
+            fprintf(filehandler, 'F%d %d %d V%d %.3f \n', i, ...
             component_array(i).endpoint, component_array(i).startpoint, ...
-            component_array(i).dep_endp, component_array(i).dep_startp,...
+            find_battery_amonglist(component_array(i).dep_startp, component_array(i).dep_endp, 1),...
             component_array(i).value)
 
           case 'dep vccs'
-            fprintf(filehandler, 'G%d %d %d %d %d %.3f\n', i, ...
+            fprintf(filehandler, 'G%d %d %d %d %d %.3f \n', i, ...
             component_array(i).endpoint, component_array(i).startpoint, ...
             component_array(i).dep_endp, component_array(i).dep_startp,...
             component_array(i).value)
 
           case 'dep vcvs'
-            fprintf(filehandler, 'E%d %d %d %d %d %.3f\n', i, ...
+            fprintf(filehandler, 'E%d %d %d %d %d %.3f \n', i, ...
             component_array(i).endpoint, component_array(i).startpoint, ...
             component_array(i).dep_endp, component_array(i).dep_startp,...
             component_array(i).value)
 
           case 'dep ccvs'
-            fprintf(filehandler, 'H%d %d %d %d %d %.3f\n', i, ...
+            fprintf(filehandler, 'H%d %d %d V%d %.3f \n', i, ...
             component_array(i).endpoint, component_array(i).startpoint, ...
-            component_array(i).dep_endp, component_array(i).dep_startp,...
+            find_battery_amonglist(component_array(i).dep_startp, component_array(i).dep_endp, 1),...
             component_array(i).value)
 
         endswitch
       endfor
+      if AC == 0
+        fprintf(filehandler, '.op \n');
+      else
+        fprintf(filehandler, '.AC DEC 10 10 %.3f ', freq)
+      endif
       fprintf(filehandler, '.end');
       fclose(filehandler);
       disp('File Saved succefully')
@@ -313,19 +321,21 @@ endfunction
 
 function starterfunc(src, panel, f)
  % NAME CHANGE DUE, this is the solve function 09/07/2024 i aint changing it
- global maxnode number_ofcomp component_array batterykeys;
+ global maxnode number_ofcomp component_array current4sourceslist;
  j = 0;
  k = 1;
- batterykeys = [];
+ current4sourceslist = [];
 
  cccsid = [];
  ccvsid = [];
  for i = 1:length(component_array)
    if strcmp(component_array(i).type, 'indp dc vs') || ...
      strcmp(component_array(i).type, 'indp ac vs') ||...
-     strcmp(component_array(i).type, 'dep vcvs')
+     strcmp(component_array(i).type, 'dep vcvs') ||...
+     strcmp(component_array(i).type, 'dep ccvs')
      j += 1;
    endif
+
  endfor
 
   % creates the matrices, Y is for normal stamps like R and L and C, adds them all
@@ -344,7 +354,7 @@ function starterfunc(src, panel, f)
    dependp = component_array(i).dep_endp;
 
    if strcmp(component_array(i).type, 'dep cccs')   % skips cccs and ccvs until all batteries have been proccessed
-     cccsid(end+1) = i
+     cccsid(end+1) = i;
      continue;
    elseif strcmp(component_array(i).type, 'dep ccvs')
      ccvsid(end+1) = i;
@@ -395,7 +405,7 @@ function starterfunc(src, panel, f)
    else
      Y(min(pstart, pend):max(pstart, pend), min(pdepstart, pdepend):max(pdepstart, pdepend)) += ...
                                           component_array(i).mat
-   batterykeys(end+1) = i;
+   current4sourceslist(end+1) = i;
    endif
 
    elseif strcmp(component_array(i).type, 'indp dc cs') % checks for dc indp cs to add
@@ -426,6 +436,7 @@ function starterfunc(src, panel, f)
          A(maxnode+k, endp) = 1
          A(endp, maxnode+k) = 1
        endif
+
        if depstartp == 0
          A(maxnode+k, dependp) = -component_array(i).value
        elseif dependp == 0
@@ -433,9 +444,9 @@ function starterfunc(src, panel, f)
        else
          A(maxnode+k, depstartp) = component_array(i).value
          A(maxnode+k, dependp) = -component_array(i).value
+        endif
        k += 1;
-       batterykeys(end+1) = i;
-       endif
+       current4sourceslist(end+1) = i;
 
     elseif strcmp(component_array(i).type, 'indp dc vs') || ...
             strcmp(component_array(i).type, 'indp ac vs') % Checks for them to adjust A
@@ -459,7 +470,7 @@ function starterfunc(src, panel, f)
 
      endif
 
-     batterykeys(end+1) = i;
+     current4sourceslist(end+1) = i;
      I(k+maxnode, 1) = component_array(i).value
      k += 1;
    endif
@@ -475,42 +486,45 @@ function starterfunc(src, panel, f)
      depstartp = component_array(cccsid(cccs_i)).dep_startp;
      dependp = component_array(cccsid(cccs_i)).dep_endp;
 
-     k_ans = find_battery(batterykeys, component_array(cccsid(cccs_i)));
+     k_ans = find_battery(current4sourceslist, component_array(cccsid(cccs_i)));
 
-     if k_ans != -1
-       kpivot = k_ans;      % if we find the battery we use it and skip making the dummy one,
-     else
-       kpivot = k;          % if we fail to find a battery, we create the dummy one at the last k (Gets updated right after use)
-       % From here it prepares the dummy battery
-       if dependp == 0               % checks for gnd nodes to adjust stamp
-        A(maxnode+kpivot, depstartp) = -1  % k  is the number of the order of the curnt vs      yeah i copied this :D
-        A(depstartp, maxnode+kpivot) = -1  % so as to put in it in right col and row and
-                                    % to display results later on
-       elseif depstartp == 0
-        A(maxnode+kpivot, dependp) = 1
-        A(dependp, maxnode+kpivot) = 1
+    if k_ans != -1         % will never fail
+       kpivot = k_ans;    
+      endif
 
-       else
-        A(maxnode+kpivot, dependp) = 1
-        A(dependp, maxnode+kpivot) = 1
-        A(depstartp, maxnode+kpivot) = -1
-        A(maxnode+kpivot, depstartp) = -1
-       endif
-       k += 1;
-       I = [I; 0] % adds a zero for the dummy
-       batterykeys(end+1) = cccsid(cccs_i);
-     endif
+    mode = 0;         % change to use the normal cccs stamp, im keeping it this way because this one gave the closest answers
+    if mode == 0
 
-       if endp == 0
-         A(startp, maxnode+kpivot) = component_array(cccsid(cccs_i)).value  % adjusts for gnd nodes
-       elseif startp == 0
-         A(endp, maxnode+kpivot) = -component_array(cccsid(cccs_i)).value
-       else
-         A(endp, maxnode+kpivot) = -component_array(cccsid(cccs_i)).value
-         A(startp, maxnode+kpivot) = component_array(cccsid(cccs_i)).value
-       endif
+      if startp != 0
+        A(startp, maxnode+k) = -1
+      endif
+
+      if endp != 0
+        A(endp, maxnode+k) = 1
+      endif
+
+      A(maxnode+k, maxnode+k) = 1
+      A(maxnode+k, kpivot+maxnode) = -component_array(cccsid(cccs_i)).value
+      I(maxnode+k, 1) = 0
+
+    else                  % even though both didn't get LTSpice's answers for some reason
+
+      if startp != 0
+        A(startp, maxnode+kpivot) = component_array(cccsid(cccs_i)).value
+      endif
+
+      if endp != 0
+        A(endp, maxnode+kpivot) = -component_array(cccsid(cccs_i)).value
+      endif
+
+    endif
 
   endfor
+
+  if mode == 0
+    k += 1;
+  endif
+
  endif
 
  % Handles ccvs's, finds if the dummy vs is a real one and proceeds to either update the col and rows
@@ -523,34 +537,15 @@ function starterfunc(src, panel, f)
        depstartp = component_array(ccvsid(ccvs_i)).dep_startp;
        dependp = component_array(ccvsid(ccvs_i)).dep_endp;
 
-       k_ans = find_battery(batterykeys, component_array(ccvsid(ccvs_i)))
+       k_ans = find_battery(current4sourceslist, component_array(ccvsid(ccvs_i)))
 
        if k_ans != -1
-         kpivot = k_ans       % same thing as cccs, we need however the k that is after to make our new branch
-         kpivot2 = k           % if we find it, we take it and use the last unused k, else we use it to create dummy
-       else                     % and create a new k for the branch
-         kpivot = k;
-         k += 1;
-         kpivot2 = k;
-         % From here it prepares the dummy battery
-         if dependp == 0               % checks for gnd nodes to adjust stamp
-          A(maxnode+kpivot, depstartp) = -1  % k  is the number of the order of the curnt vs
-          A(depstartp, maxnode+kpivot) = -1  % so as to put in it in right col and row and
-                                      % to display results later on
-         elseif depstartp == 0
-          A(maxnode+kpivot, dependp) = 1
-          A(dependp, maxnode+kpivot) = 1
-
-         else
-          A(maxnode+kpivot, dependp) = 1
-          A(dependp, maxnode+kpivot) = 1
-          A(depstartp, maxnode+kpivot) = -1
-          A(maxnode+kpivot, depstartp) = -1
-         endif
-         batterykeys(end+1) = ccvsid(ccvs_i);
+         kpivot = k_ans       % k_ans will always be there, else the component wont get through anyway
+         kpivot2 = k           
        endif
-         I(kpivot2 + maxnode, 1) = 0        % we want these two to  be done anyway this results, batterykey however, twice if we make a dummy, once if not
-         batterykeys(end+1) = ccvs_i;
+
+         I(kpivot2 + maxnode, 1) = 0      
+         current4sourceslist(end+1) = ccvsid(ccvs_i);
          A(maxnode+kpivot2, maxnode+kpivot) = -component_array(ccvsid(ccvs_i)).value
          if endp == 0
            A(startp, maxnode+kpivot2) = -1
@@ -580,21 +575,48 @@ function starterfunc(src, panel, f)
  endif
 
  % Calling to display the answers
- showanswers(v, batterykeys, panel, k, f);
+ showanswers(v, current4sourceslist, panel, k, f);
 endfunction
 
 function k = find_battery(currentindexlist, cccs_struct)
-  % This looks if the dep nodes of a cccs is an actual battery
+  % This looks if the dep nodes of a cccs is an actual battery and to fine the k count for sources
   global component_array
   depstartp = cccs_struct.dep_startp;
   dependp = cccs_struct.dep_endp;
+  vccscount = 0;
   k = -1;
   for i = 1:length(currentindexlist)
     if component_array(currentindexlist(i)).startpoint== depstartp && ...
-       component_array(currentindexlist(i)).endpoint == dependp
+      component_array(currentindexlist(i)).endpoint == dependp ... &&
+      (strcmp(component_array(currentindexlist(i)).type, 'indp ac vs') || ...
+      strcmp(component_array(currentindexlist(i)).type, 'indp dc vs'))
 
-       k = i;
-       break
+      k = i - vccscount;
+      break
+    endif
+    if strcmp(component_array(currentindexlist(i)).type, 'dep vccs')
+      vccscount += 1;
+    endif
+  endfor
+
+endfunction
+
+function k = find_battery_amonglist(depstartp, dependp, mode)
+  % Find if a dummy or a real battery exists for ccvs or cccs
+  global allvoltagesources
+  k = -1;
+  for n = 1:length(allvoltagesources)
+    if (allvoltagesources(n).startpoint== depstartp && ...
+       allvoltagesources(n).endpoint == dependp) || (allvoltagesources(n).startpoint== dependp && ...
+       allvoltagesources(n).endpoint == depstartp)
+
+      if mode == 0
+        k = n;
+      else
+        k = allvoltagesources(n).number;
+      endif
+
+      break
     endif
   endfor
 
@@ -616,28 +638,29 @@ function showanswers(answers, currentanswers, panel, k, f)
      else
        msg = sprintf('V%d0 %.5f', i, answers(i, 1));
      endif
-     uicontrol(panel, 'Style', 'text', 'String', msg, 'Position', [4, 200 - 15*(i - 1), 230, 20])
+     uicontrol(panel, 'Style', 'text', 'String', msg, 'Position', [4, 225 - 15*(i - 1), 230, 20])
 
-   else
+   else         % there is an extra iteration that happens, idk why, but its harmless so im leaving it
 
     if strcmp(component_array(currentanswers(i - maxnode)).type, 'dep cccs')
         startp = component_array(currentanswers(i - maxnode)).dep_startp;
         endp = component_array(currentanswers(i - maxnode)).dep_endp;
 
-    elseif strcmp(component_array(currentanswers(i - maxnode)).type, 'dep ccvs')
+%{    elseif strcmp(component_array(currentanswers(i - maxnode)).type, 'dep ccvs')
         startp = component_array(currentanswers(i - maxnode)).startpoint;
         endp = component_array(currentanswers(i - maxnode)).endpoint;
-                                                                        % ccvs results still show 10 for some reason idk why
+                                                                        
         if iscomplex(answers(i, 1))
         msg = sprintf('I%d%d %.5f + %.5fj', component_array(currentanswers(i - maxnode)).dep_endp,...
                     component_array(currentanswers(i - maxnode)).dep_startp,...
-                    real(answers(i, 1)), imag(answers(i, 1)));
+                    real(answers(i, 1)), imag(answers(i, 1)));          % since it prints
         else
           msg = sprintf('I%d%d %.3f', component_array(currentanswers(i - maxnode)).dep_endp,...
                     component_array(currentanswers(i - maxnode)).dep_startp, answers(i, 1));
-          uicontrol(panel, 'Style', 'text', 'String', msg, 'Position', [4, 200 - 15*(i - 1), 230, 20]);
+          uicontrol(panel, 'Style', 'text', 'String', msg, 'Position', [4, 225 - 15*(i - 1), 230, 20]);
           i += 1;
         endif
+        %} % i think this was the cultprit
      else
         startp = component_array(currentanswers(i - maxnode)).startpoint
         endp = component_array(currentanswers(i - maxnode)).endpoint
@@ -651,7 +674,7 @@ function showanswers(answers, currentanswers, panel, k, f)
                    startp, answers(i, 1));
      endif
 
-     uicontrol(panel, 'Style', 'text', 'String', msg, 'Position', [4, 200 - 15*(i - 1), 230, 20]);
+     uicontrol(panel, 'Style', 'text', 'String', msg, 'Position', [4, 225 - 15*(i - 1), 230, 20]);
 
    endif
  endfor
@@ -697,7 +720,7 @@ endfunction
 
 function remove_comp()
  % This to remove the last component added
-  global number_ofcomp component_array texthandles rmvspc freq;
+  global number_ofcomp component_array texthandles allvoltagesources freq;
 
   if number_ofcomp > 1
   number_ofcomp -= 1;
@@ -708,6 +731,10 @@ function remove_comp()
   if strcmp(name, 'indp ac vs')
     freq = 0.0;
     uicontrol('Style', 'text', 'String', '','Position', [520, 580, 440, 10]);
+    allvoltagesources(end) = [];
+
+  elseif strcmp(name, 'indp dc vs')
+    allvoltagesources(end) = [];
   endif
 
 else
@@ -720,7 +747,7 @@ endfunction
 function add_component(h1, h2, h3, h4, h5, h6, h7, h8, h9)
 % This adds the component according to the ip'ed info
 
-  global component_array maxnode texthandles number_ofcomp comp_panel rmvspc freq;
+  global component_array maxnode texthandles number_ofcomp comp_panel rmvspc freq allvoltagesources;
 
   % Extracts and converts data from all ips
   component_name = get(h1, 'String'){get(h1, 'Value'), 1};
@@ -742,9 +769,12 @@ function add_component(h1, h2, h3, h4, h5, h6, h7, h8, h9)
       warndlg('Wrong type of value for the frequency, please enter a float number');
    elseif (startp == endp ||...
       (dependp == depstartp && strcmp(get(h6, 'Visible'), 'on')))
+           warndlg('Wrong starting or end point, cant have something connected to itself')
 
-     warndlg('Wrong starting or end point, cant have something connected to itself')
-
+   elseif (strcmp(component_name, 'dep cccs') || strcmp(component_name, 'dep ccvs')) && ....
+      find_battery_amonglist(depstartp, dependp, 0) == -1                               % Size of the A might be right
+    warndlg('Must have a voltage source sort of any sort present between the two nodes')    % but all components will be parallel with the battery
+    
    else
 
     oldvalue = value;
@@ -759,15 +789,16 @@ function add_component(h1, h2, h3, h4, h5, h6, h7, h8, h9)
       value = value*s*i;
     endif
 
-    if (component_name == 'R' || strcmp(component_name, 'inductor'))...
+    if (strcmp(component_name, 'inductor') && freq == 0)                % if no frequency treat the inductor as a dummy voltage
+      component = struct('type', 'indp dc vs', 'unit', unit, 'value', 0 ...
+        , 'startpoint', startp, 'endpoint', endp, 'mat', NaN,...
+        'dep_startp', depstartp, 'dep_endp', dependp, 'oldvalue', oldvalue, 'number', number_ofcomp);
+
+    elseif (component_name == 'R' || strcmp(component_name, 'inductor'))...
       &&  startp != 0 && endp != 0 % creates the stamps
                                                       % for R's and L's and C's
-      if (strcmp(component_name, 'inductor') && freq == 0)                % if no frequency treat the inductor as a dummy voltage
-        component = struct('type', 'indp dc vs', 'unit', unit, 'value', 0 ...
-         , 'startpoint', startp, 'endpoint', endp, 'mat', NaN,...
-         'dep_startp', depstartp, 'dep_endp', dependp, 'oldvalue', oldvalue);
 
-      elseif abs(startp - endp) == 1                                          % 2x2 mat if two consective nodes
+      if abs(startp - endp) == 1                                          % 2x2 mat if two consective nodes
         mater = [1/value, -1/value ; -1/value, 1/value];
       else
 
@@ -782,7 +813,7 @@ function add_component(h1, h2, h3, h4, h5, h6, h7, h8, h9)
       if freq == 0
         component = struct('type', 'indp dc cs', 'unit', unit, 'value', 0 ...             % treat the capacitor as zero current source
          , 'startpoint', startp, 'endpoint', endp, 'mat', NaN,...
-         'dep_startp', depstartp, 'dep_endp', dependp, 'oldvalue', oldvalue);
+         'dep_startp', depstartp, 'dep_endp', dependp, 'oldvalue', oldvalue, 'number', number_ofcomp);
 
       elseif abs(startp - endp) == 1
         mater = [value, -value; -value, value];
@@ -790,9 +821,9 @@ function add_component(h1, h2, h3, h4, h5, h6, h7, h8, h9)
       else
         mater = zeros(abs(startp - endp) + 1, abs(startp - endp) + 1);
         mater(1, 1) = value;
-        mater (1, end) = value;
-        mater (end, 1) = -value;
-        mater(end, end) = value;
+        mater (1, end) = -value;
+        mater (end, 1) = value;
+        mater(end, end) = -value;
       endif
 
     elseif strcmp(component_name, 'dep vccs')
@@ -816,14 +847,21 @@ function add_component(h1, h2, h3, h4, h5, h6, h7, h8, h9)
       if depstartp == 0 % l
         mater(1, end) = 0
         mater(end, end) = 0
-      elseif dependp == 0 % k
+      elseif depndp == 0 % k      i found the a notebook on github that does the opposite with these, im sticking to my sources
         mater(1, 1) = 0
         mater(end, 1) = 0
-        mater = -1*mater
-      elseif endp == 0 && size(mater, 1) > 1 % j
+      endif
+      if endp == 0 && size(mater, 1) > 1 % j
         mater(end, :) = 0
       elseif startp == 0 && size(mater, 1) > 1 % i
         mater(1, :) = 0
+      endif
+      if dependp > depstartp                  % Switch the elements if N+ is Greater than N- So everything gets added right
+        swithcher = [mater(1, end) ; mater(end, end)]
+        mater(1, end) = mater(1, 1)
+        mater(end, end) = mater(end, 1)
+        mater(1, 1) = swithcher(1)
+        mater(end, 1) = swithcher(end, 1)
       endif
     else
    % Will not call this attr if it has a gnd node, will adjust A with value only
@@ -834,7 +872,7 @@ function add_component(h1, h2, h3, h4, h5, h6, h7, h8, h9)
     if ~((strcmp(component_name, 'inductor') || strcmp(component_name, 'capacitor')) && freq == 0)
       component = struct('type', component_name, 'unit', unit, 'value', value ...
        , 'startpoint', startp, 'endpoint', endp, 'mat', mater,...
-       'dep_startp', depstartp, 'dep_endp', dependp, 'oldvalue', oldvalue);
+       'dep_startp', depstartp, 'dep_endp', dependp, 'oldvalue', oldvalue, 'number', number_ofcomp);
     endif
 
    % Adds the last added component
@@ -887,8 +925,13 @@ function add_component(h1, h2, h3, h4, h5, h6, h7, h8, h9)
     else
 
     % Message for all components indp dc
-      message = sprintf('%s%d of value %.2f from node %d to node %d',...
-                        component_name, number_ofcomp, value, startp, endp);
+      if ~strcmp(unit, 'Base')
+        message = sprintf('%s%d of value %.2f%s from node %d to node %d',...
+                          component_name, number_ofcomp, oldvalue, unit, startp, endp);
+      else
+        message = sprintf('%s%d of value %.2f from node %d to node %d',...
+                          component_name, number_ofcomp, value, startp, endp);
+      endif
       id = uicontrol(comp_panel, 'Style', 'text', 'String', message, ...,
       'Position', [15, 260 - 15*(number_ofcomp - 1), 300, 10]);
 
@@ -896,6 +939,11 @@ function add_component(h1, h2, h3, h4, h5, h6, h7, h8, h9)
       number_ofcomp += 1;
     endif
    endif
+
+   if strcmp(component_name, 'indp ac vs') || strcmp(component_name, 'indp dc vs')
+    allvoltagesources = [allvoltagesources, component];
+   endif
+
   endfunction
 
 function result = scaleswitch(unit, value)
